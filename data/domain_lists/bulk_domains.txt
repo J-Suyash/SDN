@@ -1,0 +1,33 @@
+# Bulk Transfer and Background Domains
+# Priority Class: P0 (Lowest)
+# These domains get throttled under congestion
+
+# OS Updates
+*.windowsupdate.com
+*.microsoft.com/updates
+updates.ubuntu.com
+*.apple.com/updates
+
+# Cloud Backup
+*.dropbox.com
+*.onedrive.com
+*.icloud.com
+*.backblaze.com
+
+# Large File Downloads
+*.download.com
+*.sourceforge.net
+releases.ubuntu.com
+
+# Torrent (if identifiable)
+*.bittorrent.com
+
+# CDN (large file)
+*.akamai.net
+*.cloudfront.net
+*.fastly.net
+
+# Package Managers
+pypi.org
+registry.npmjs.org
+*.docker.io

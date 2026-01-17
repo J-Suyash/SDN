@@ -1,0 +1,108 @@
+version: '3.8'
+
+# ML-Driven Adaptive Traffic Management in SDN
+# Docker Compose Configuration
+
+services:
+  # ============================================
+  # Faucet SDN Controller
+  # ============================================
+  faucet:
+    build:
+      context: ./faucet
+      dockerfile: Dockerfile
+    container_name: sdn-faucet
+    restart: unless-stopped
+    volumes:
+      - ../faucet:/etc/faucet:ro
+      - faucet-logs:/var/log/faucet
+    ports:
+      - "6653:6653"   # OpenFlow
+      - "9302:9302"   # Prometheus metrics
+    environment:
+      - FAUCET_CONFIG_STAT_RELOAD=1
+      - FAUCET_EVENT_SOCK=0
+    networks:
+      - sdn-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9302/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # Prometheus Metrics Collection
+  # ============================================
+  prometheus:
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    container_name: sdn-prometheus
+    restart: unless-stopped
+    volumes:
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - sdn-network
+    depends_on:
+      - faucet
+
+  # ============================================
+  # Mininet Network Emulation
+  # Requires privileged mode for OVS
+  # ============================================
+  mininet:
+    build:
+      context: ./mininet
+      dockerfile: Dockerfile
+    container_name: sdn-mininet
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../mininet:/app/mininet:ro
+      - ../collector:/app/collector:ro
+      - ../data:/app/data
+      - /lib/modules:/lib/modules:ro
+    environment:
+      - FAUCET_HOST=127.0.0.1
+      - FAUCET_PORT=6653
+    depends_on:
+      - faucet
+    command: ["tail", "-f", "/dev/null"]  # Keep container running
+
+  # ============================================
+  # ML Orchestrator
+  # ============================================
+  ml-orchestrator:
+    build:
+      context: ./ml-orchestrator
+      dockerfile: Dockerfile
+    container_name: sdn-orchestrator
+    restart: unless-stopped
+    volumes:
+      - ../orchestrator:/app/orchestrator
+      - ../ml:/app/ml
+      - ../collector:/app/collector
+      - ../data:/app/data
+    environment:
+      - PROMETHEUS_URL=http://sdn-prometheus:9090
+      - FAUCET_CONFIG_PATH=/etc/faucet/faucet.yaml
+      - MODEL_PATH=/app/ml/models
+      - LOG_LEVEL=INFO
+    networks:
+      - sdn-network
+    depends_on:
+      - prometheus
+    command: ["python", "-u", "/app/orchestrator/orchestrator.py"]
+
+networks:
+  sdn-network:
+    driver: bridge
+
+volumes:
+  faucet-logs:
+  prometheus-data:

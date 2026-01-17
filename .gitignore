@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ML Models (trained models - download from Colab)
+ml/models/*.pkl
+*.h5
+
+# Data files (too large for git, generated locally)
+data/raw/captures/*.pcap
+data/processed/flows.csv
+data/processed/link_timeseries.csv
+
+# Keep data directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/domain_lists/
+
+# Docker volumes
+docker/prometheus-data/
+docker/faucet-logs/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

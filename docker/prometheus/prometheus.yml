@@ -1,0 +1,18 @@
+# Prometheus Configuration for SDN ML Project
+# Scrapes metrics from Faucet controller
+
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  # Faucet controller metrics
+  - job_name: 'faucet'
+    static_configs:
+      - targets: ['sdn-faucet:9302']
+    metrics_path: /metrics
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

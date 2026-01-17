@@ -1,0 +1,32 @@
+# Office and Web Browsing Domains
+# Priority Class: P1 (Best Effort)
+# Standard priority for general productivity
+
+# Email
+*.gmail.com
+*.outlook.com
+*.yahoo.com
+mail.google.com
+
+# Productivity
+*.google.com
+*.docs.google.com
+*.sheets.google.com
+*.office.com
+*.notion.so
+*.slack.com
+*.asana.com
+
+# General Web
+*.wikipedia.org
+*.stackoverflow.com
+*.github.com
+*.medium.com
+
+# Social (work-related)
+*.linkedin.com
+
+# News
+*.bbc.com
+*.cnn.com
+*.reuters.com

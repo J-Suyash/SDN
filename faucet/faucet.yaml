@@ -1,0 +1,52 @@
+# Faucet Configuration
+# ML-Driven Adaptive Traffic Management in SDN
+
+# ============================================
+# VLANs
+# ============================================
+vlans:
+  office:
+    vid: 100
+    description: "Office network"
+
+# ============================================
+# Data Path (Switches)
+# ============================================
+dps:
+  # MVP: Single switch topology
+  # Will be expanded in Phase 2 for multi-path
+  s1:
+    dp_id: 0x1
+    hardware: "Open vSwitch"
+    interfaces:
+      # Host ports
+      1:
+        name: "h1"
+        description: "Host 1"
+        native_vlan: office
+      2:
+        name: "h2"
+        description: "Host 2"
+        native_vlan: office
+      # Reserved for Phase 2: Multi-path topology
+      # 3:
+      #   name: "s2"
+      #   description: "Link to switch 2"
+      #   native_vlan: office
+
+# ============================================
+# ACLs (Access Control Lists)
+# Will be populated dynamically by orchestrator
+# ============================================
+acls:
+  # Priority queues (P0-P3)
+  # P3: Banking/Payment - highest priority
+  # P2: Voice/Video
+  # P1: Office/Web
+  # P0: Bulk/Background - lowest priority
+  
+  # Default ACL - allow all (MVP)
+  default-acl:
+    - rule:
+        actions:
+          allow: 1

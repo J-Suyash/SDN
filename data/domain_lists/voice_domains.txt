@@ -1,0 +1,26 @@
+# Voice and Video Communication Domains
+# Priority Class: P2
+# These domains get low jitter, low delay
+
+# Video Conferencing
+meet.google.com
+zoom.us
+*.zoom.us
+teams.microsoft.com
+*.teams.microsoft.com
+webex.com
+*.webex.com
+
+# VoIP
+*.skype.com
+voice.google.com
+*.vonage.com
+
+# Streaming (Live)
+*.twitch.tv
+live.youtube.com
+
+# WebRTC Services
+*.daily.co
+*.whereby.com
+*.jitsi.org

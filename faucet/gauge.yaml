@@ -1,0 +1,27 @@
+# Gauge Configuration (Optional)
+# For additional Faucet metrics collection
+
+# Enable flow table statistics
+faucet_configs:
+  - '/etc/faucet/faucet.yaml'
+
+watchers:
+  # Port statistics
+  port_stats:
+    dps: ['s1']
+    type: 'port_stats'
+    interval: 10
+    db: 'prometheus'
+  
+  # Flow statistics  
+  flow_stats:
+    dps: ['s1']
+    type: 'flow_stats'
+    interval: 10
+    db: 'prometheus'
+
+dbs:
+  prometheus:
+    type: 'prometheus'
+    prometheus_addr: '0.0.0.0'
+    prometheus_port: 9303

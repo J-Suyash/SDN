@@ -1,0 +1,36 @@
+# Banking and Payment Domains
+# Priority Class: P3 (Highest)
+# These domains get lowest delay, reserved bandwidth
+
+# Payment Gateways
+paypal.com
+stripe.com
+razorpay.com
+paytm.com
+phonepe.com
+
+# Indian UPI
+upi.npci.org.in
+npci.org.in
+
+# Banks - India
+*.hdfcbank.com
+*.icicibank.com
+*.sbi.co.in
+*.axisbank.com
+*.kotak.com
+
+# Banks - International
+*.chase.com
+*.bankofamerica.com
+*.wellsfargo.com
+*.citi.com
+
+# Cryptocurrency
+*.coinbase.com
+*.binance.com
+
+# Stock Trading
+*.zerodha.com
+*.groww.in
+*.upstox.com
