@@ -24,15 +24,22 @@ class FlowRecord:
     dst_ip: str
     src_port: int
     dst_port: int
-    protocol: str
+    protocol: int  # Changed from str to int (6/17) to match Scapy
     packet_count: int
     byte_count: int
     duration_sec: float
     bytes_per_packet: float
     packets_per_sec: float
     bytes_per_sec: float
-    sni_domain: str
-    label: str  # P0, P1, P2, P3
+    # New Scapy Features
+    pkt_len_min: int = 0
+    pkt_len_max: int = 0
+    pkt_len_mean: float = 0.0
+    pkt_len_std: float = 0.0
+    iat_mean: float = 0.0
+    iat_std: float = 0.0
+    sni_domain: str = ""
+    label: str = "P1"  # P0, P1, P2, P3
 
 
 @dataclass
@@ -117,7 +124,7 @@ class DatasetBuilder:
         self, raw_flow: Dict[str, Any], label: str, sni_domain: str = ""
     ) -> FlowRecord:
         """
-        Build a FlowRecord from raw flow data.
+        Build a FlowRecord from raw flow data (OVS or Scapy).
 
         Args:
             raw_flow: Dictionary with flow information
@@ -132,24 +139,37 @@ class DatasetBuilder:
         duration = raw_flow.get("duration", raw_flow.get("duration_sec", 1))
 
         # Avoid division by zero
-        duration = max(duration, 0.001)
-        packet_count = max(packet_count, 1)
+        duration = max(float(duration), 0.001)
+        packet_count = max(int(packet_count), 1)
+        byte_count = int(byte_count)
+
+        # Protocol normalization
+        protocol = raw_flow.get("protocol", 6)
+        if isinstance(protocol, str):
+            protocol = 17 if protocol.lower() == "udp" else 6
 
         return FlowRecord(
-            flow_id=raw_flow.get("flow_id", raw_flow.get("cookie", "unknown")),
-            timestamp=raw_flow.get("timestamp", datetime.now().isoformat()),
+            flow_id=str(raw_flow.get("flow_id", raw_flow.get("cookie", "unknown"))),
+            timestamp=str(raw_flow.get("timestamp", datetime.now().isoformat())),
             src_ip=raw_flow.get("src_ip", ""),
             dst_ip=raw_flow.get("dst_ip", ""),
-            src_port=raw_flow.get("src_port", 0),
-            dst_port=raw_flow.get("dst_port", 0),
-            protocol=raw_flow.get("protocol", "tcp"),
+            src_port=int(raw_flow.get("src_port", 0)),
+            dst_port=int(raw_flow.get("dst_port", 0)),
+            protocol=int(protocol),
             packet_count=packet_count,
             byte_count=byte_count,
             duration_sec=duration,
             bytes_per_packet=byte_count / packet_count,
             packets_per_sec=packet_count / duration,
             bytes_per_sec=byte_count / duration,
-            sni_domain=sni_domain,
+            # Scapy features
+            pkt_len_min=int(raw_flow.get("pkt_len_min", 0)),
+            pkt_len_max=int(raw_flow.get("pkt_len_max", 0)),
+            pkt_len_mean=float(raw_flow.get("pkt_len_mean", 0.0)),
+            pkt_len_std=float(raw_flow.get("pkt_len_std", 0.0)),
+            iat_mean=float(raw_flow.get("iat_mean", 0.0)),
+            iat_std=float(raw_flow.get("iat_std", 0.0)),
+            sni_domain=raw_flow.get("sni", sni_domain),
             label=label,
         )
 
@@ -214,22 +234,25 @@ class DatasetBuilder:
         }
 
 
-def label_flow_by_port(dst_port: int) -> str:
+def label_flow_by_port(dst_port: int, src_port: int = 0) -> str:
     """
-    Label a flow based on destination port.
+    Label a flow based on ports.
+    Checks both ports for well-known services.
 
     MVP labeling strategy - will be replaced with SNI-based labeling.
     """
+    ports = {dst_port, src_port}
+
     # Banking ports
-    if dst_port in [443, 5003]:
+    if any(p in [443, 5003] for p in ports):
         return "P3"
 
     # Voice ports
-    if dst_port in [5060, 5061, 5002]:
+    if any(p in [5060, 5061, 5002] for p in ports):
         return "P2"
 
     # Bulk ports
-    if dst_port in [20, 21, 22, 5000]:
+    if any(p in [20, 21, 22, 5000] for p in ports):
         return "P0"
 
     # Default to web

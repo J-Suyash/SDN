@@ -5,17 +5,21 @@
 faucet_configs:
   - '/etc/faucet/faucet.yaml'
 
+gauge:
+  of_port: 6654
+  interval: 10
+
 watchers:
   # Port statistics
   port_stats:
-    dps: ['s1']
+    dps: ['s1', 's2', 's3', 's4', 's5', 's6']
     type: 'port_stats'
     interval: 10
     db: 'prometheus'
   
   # Flow statistics  
   flow_stats:
-    dps: ['s1']
+    dps: ['s1', 's2', 's3', 's4', 's5', 's6']
     type: 'flow_stats'
     interval: 10
     db: 'prometheus'

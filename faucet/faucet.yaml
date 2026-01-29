@@ -1,5 +1,6 @@
 # Faucet Configuration
 # ML-Driven Adaptive Traffic Management in SDN
+# Phase 2: Multi-Path Topology
 
 # ============================================
 # VLANs
@@ -10,43 +11,160 @@ vlans:
     description: "Office network"
 
 # ============================================
+# ACLs (Access Control Lists)
+# ============================================
+acls:
+  # Force generation of per-flow counters for ML
+  ml-flow-counters:
+    # P3: Banking (Port 5003)
+    - rule:
+        eth_type: 0x0800
+        nw_proto: 6
+        tcp_dst: 5003
+        actions:
+          allow: 1
+    # P2: Voice (Port 5002)
+    - rule:
+        eth_type: 0x0800
+        nw_proto: 17
+        udp_dst: 5002
+        actions:
+          allow: 1
+    # P1: Web (Port 5001)
+    - rule:
+        eth_type: 0x0800
+        nw_proto: 6
+        tcp_dst: 5001
+        actions:
+          allow: 1
+    # P0: Bulk (Port 5000)
+    - rule:
+        eth_type: 0x0800
+        nw_proto: 6
+        tcp_dst: 5000
+        actions:
+          allow: 1
+    # Catch-all
+    - rule:
+        actions:
+          allow: 1
+
+# ============================================
 # Data Path (Switches)
 # ============================================
 dps:
-  # MVP: Single switch topology
-  # Will be expanded in Phase 2 for multi-path
+  # Edge Switch 1 (connected to h1, h2)
   s1:
     dp_id: 0x1
     hardware: "Open vSwitch"
     interfaces:
-      # Host ports
       1:
         name: "h1"
-        description: "Host 1"
         native_vlan: office
+        acls_in: [ml-flow-counters]
       2:
         name: "h2"
-        description: "Host 2"
         native_vlan: office
-      # Reserved for Phase 2: Multi-path topology
-      # 3:
-      #   name: "s2"
-      #   description: "Link to switch 2"
-      #   native_vlan: office
+        acls_in: [ml-flow-counters]
+      3:
+        name: "link_to_s2"
+        description: "Path A Uplink"
+        stack:
+          dp: s2
+          port: 1
+      4:
+        name: "link_to_s5"
+        description: "Path B Uplink"
+        stack:
+          dp: s5
+          port: 1
 
-# ============================================
-# ACLs (Access Control Lists)
-# Will be populated dynamically by orchestrator
-# ============================================
-acls:
-  # Priority queues (P0-P3)
-  # P3: Banking/Payment - highest priority
-  # P2: Voice/Video
-  # P1: Office/Web
-  # P0: Bulk/Background - lowest priority
-  
-  # Default ACL - allow all (MVP)
-  default-acl:
-    - rule:
-        actions:
-          allow: 1
+  # Core Switch A1
+  s2:
+    dp_id: 0x2
+    hardware: "Open vSwitch"
+    interfaces:
+      1:
+        name: "link_to_s1"
+        stack:
+          dp: s1
+          port: 3
+      2:
+        name: "link_to_s3"
+        stack:
+          dp: s3
+          port: 1
+
+  # Core Switch A2
+  s3:
+    dp_id: 0x3
+    hardware: "Open vSwitch"
+    interfaces:
+      1:
+        name: "link_to_s2"
+        stack:
+          dp: s2
+          port: 2
+      2:
+        name: "link_to_s4"
+        stack:
+          dp: s4
+          port: 3
+
+  # Edge Switch 4 (connected to h3, h4)
+  s4:
+    dp_id: 0x4
+    hardware: "Open vSwitch"
+    interfaces:
+      1:
+        name: "h3"
+        native_vlan: office
+        acls_in: [ml-flow-counters]
+      2:
+        name: "h4"
+        native_vlan: office
+        acls_in: [ml-flow-counters]
+      3:
+        name: "link_to_s3"
+        description: "Path A Downlink"
+        stack:
+          dp: s3
+          port: 2
+      4:
+        name: "link_to_s6"
+        description: "Path B Downlink"
+        stack:
+          dp: s6
+          port: 2
+
+  # Core Switch B1
+  s5:
+    dp_id: 0x5
+    hardware: "Open vSwitch"
+    interfaces:
+      1:
+        name: "link_to_s1"
+        stack:
+          dp: s1
+          port: 4
+      2:
+        name: "link_to_s6"
+        stack:
+          dp: s6
+          port: 1
+
+  # Core Switch B2
+  s6:
+    dp_id: 0x6
+    hardware: "Open vSwitch"
+    interfaces:
+      1:
+        name: "link_to_s5"
+        stack:
+          dp: s5
+          port: 2
+      2:
+        name: "link_to_s4"
+        stack:
+          dp: s4
+          port: 4

@@ -4,8 +4,10 @@
 FROM python:3.11-slim
 
 # Install system dependencies
+# Including openvswitch-switch to get ovs-ofctl/ovs-vsctl for host communication
 RUN apt-get update && apt-get install -y \
     curl \
+    openvswitch-switch \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

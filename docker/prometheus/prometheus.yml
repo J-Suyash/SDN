@@ -9,7 +9,19 @@ scrape_configs:
   # Faucet controller metrics
   - job_name: 'faucet'
     static_configs:
-      - targets: ['sdn-faucet:9302']
+      - targets: ['localhost:9302']
+    metrics_path: /metrics
+
+  # Faucet Gauge metrics (Port/Flow stats)
+  - job_name: 'gauge'
+    static_configs:
+      - targets: ['localhost:9303']
+    metrics_path: /metrics
+
+  # ML Orchestrator Metrics (Plan C backup)
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['localhost:8000']
     metrics_path: /metrics
 
   # Prometheus self-monitoring

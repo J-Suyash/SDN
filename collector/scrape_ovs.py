@@ -56,8 +56,11 @@ class OVSScraper:
             List of FlowStats objects
         """
         try:
+            # We assume OVS socket is mounted at /var/run/openvswitch/db.sock
+            # or that ovs-ofctl is configured to talk to the host.
+            # Use OpenFlow 1.3
             result = subprocess.run(
-                ["ovs-ofctl", "dump-flows", self.bridge],
+                ["ovs-ofctl", "-O", "OpenFlow13", "dump-flows", self.bridge],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -104,6 +107,10 @@ class OVSScraper:
                 match_pattern = re.search(r"priority=\d+,?(.+?)\s*actions=", line)
                 match_str = match_pattern.group(1).strip(",") if match_pattern else ""
 
+                # Check for ports in the match string
+                # Example: tcp,in_port=1,tp_src=12345,tp_dst=5001
+                # or: tcp,reg0=0x1,in_port=1,vlan_tci=0x03e8/0x1fff,tp_dst=5001
+
                 flow = FlowStats(
                     cookie=cookie_match.group(1) if cookie_match else "0x0",
                     duration=float(duration_match.group(1)) if duration_match else 0.0,
@@ -130,7 +137,7 @@ class OVSScraper:
         """
         try:
             result = subprocess.run(
-                ["ovs-ofctl", "dump-ports", self.bridge],
+                ["ovs-ofctl", "-O", "OpenFlow13", "dump-ports", self.bridge],
                 capture_output=True,
                 text=True,
                 timeout=5,

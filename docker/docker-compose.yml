@@ -1,13 +1,14 @@
 version: '3.8'
 
 # ML-Driven Adaptive Traffic Management in SDN
-# Docker Compose Configuration
+# Docker Compose Configuration - HYBRID MODE (Docker + Host Mininet)
 
 services:
   # ============================================
   # Faucet SDN Controller
   # ============================================
   faucet:
+    image: sdn-faucet:latest
     build:
       context: ./faucet
       dockerfile: Dockerfile
@@ -16,14 +17,13 @@ services:
     volumes:
       - ../faucet:/etc/faucet:ro
       - faucet-logs:/var/log/faucet
-    ports:
-      - "6653:6653"   # OpenFlow
-      - "9302:9302"   # Prometheus metrics
+    network_mode: host
     environment:
+      - FAUCET_CONFIG=/etc/faucet/faucet.yaml
+      - FAUCET_LOG=/var/log/faucet/faucet.log
+      - FAUCET_EXCEPTION_LOG=/var/log/faucet/faucet_exception.log
       - FAUCET_CONFIG_STAT_RELOAD=1
       - FAUCET_EVENT_SOCK=0
-    networks:
-      - sdn-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9302/metrics"]
       interval: 10s
@@ -34,6 +34,7 @@ services:
   # Prometheus Metrics Collection
   # ============================================
   prometheus:
+    image: sdn-prometheus:latest
     build:
       context: ./prometheus
       dockerfile: Dockerfile
@@ -41,67 +42,77 @@ services:
     restart: unless-stopped
     volumes:
       - prometheus-data:/prometheus
-    ports:
-      - "9090:9090"
-    networks:
-      - sdn-network
+    network_mode: host
     depends_on:
       - faucet
 
   # ============================================
-  # Mininet Network Emulation
-  # Requires privileged mode for OVS
+  # Grafana Dashboards
   # ============================================
-  mininet:
-    build:
-      context: ./mininet
-      dockerfile: Dockerfile
-    container_name: sdn-mininet
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sdn-grafana
     restart: unless-stopped
-    privileged: true
-    network_mode: host
-    stdin_open: true
-    tty: true
-    volumes:
-      - ../mininet:/app/mininet:ro
-      - ../collector:/app/collector:ro
-      - ../data:/app/data
-      - /lib/modules:/lib/modules:ro
+    ports:
+      - "3000:3000"
     environment:
-      - FAUCET_HOST=127.0.0.1
-      - FAUCET_PORT=6653
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    network_mode: host
+    depends_on:
+      - prometheus
+
+  # ============================================
+  # Faucet Gauge (Metrics Exporter)
+  # ============================================
+  gauge:
+    image: faucet/gauge:latest
+    container_name: sdn-gauge
+    restart: unless-stopped
+    volumes:
+      - ../faucet:/etc/faucet:ro
+      - faucet-logs:/var/log/faucet
+    network_mode: host
+    environment:
+      - FAUCET_CONFIG=/etc/faucet/faucet.yaml
+      - GAUGE_CONFIG=/etc/faucet/gauge.yaml
+      - GAUGE_LOG=/var/log/faucet/gauge.log
+      - GAUGE_EXCEPTION_LOG=/var/log/faucet/gauge_exception.log
+    # Bypass faucet entrypoint script and run faucet --gauge directly
+    entrypoint: []
+    command: ["faucet", "--gauge", "--ryu-ofp-tcp-listen-port", "6654"]
     depends_on:
       - faucet
-    command: ["tail", "-f", "/dev/null"]  # Keep container running
 
   # ============================================
   # ML Orchestrator
   # ============================================
   ml-orchestrator:
+    image: sdn-orchestrator:latest
     build:
       context: ./ml-orchestrator
       dockerfile: Dockerfile
     container_name: sdn-orchestrator
     restart: unless-stopped
+    privileged: true
     volumes:
       - ../orchestrator:/app/orchestrator
       - ../ml:/app/ml
       - ../collector:/app/collector
       - ../data:/app/data
+      - /var/run/openvswitch:/var/run/openvswitch
+    network_mode: host
     environment:
-      - PROMETHEUS_URL=http://sdn-prometheus:9090
+      - PROMETHEUS_URL=http://localhost:9090
       - FAUCET_CONFIG_PATH=/etc/faucet/faucet.yaml
       - MODEL_PATH=/app/ml/models
       - LOG_LEVEL=INFO
-    networks:
-      - sdn-network
     depends_on:
       - prometheus
     command: ["python", "-u", "/app/orchestrator/orchestrator.py"]
-
-networks:
-  sdn-network:
-    driver: bridge
 
 volumes:
   faucet-logs:

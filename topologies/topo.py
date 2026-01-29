@@ -41,9 +41,10 @@ def run_topology():
 
     setLogLevel("info")
 
-    # Get Faucet controller address from environment
-    faucet_host = os.environ.get("FAUCET_HOST", "127.0.0.1")
-    faucet_port = int(os.environ.get("FAUCET_PORT", 6653))
+    # In hybrid mode (Faucet in Docker, Mininet on Host),
+    # we connect to 127.0.0.1 (mapped to host)
+    faucet_host = "127.0.0.1"
+    faucet_port = 6653
 
     info(f"*** Connecting to Faucet at {faucet_host}:{faucet_port}\n")
 

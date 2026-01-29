@@ -4,10 +4,15 @@
 
 # Payment Gateways
 paypal.com
+*.paypal.com
 stripe.com
+*.stripe.com
 razorpay.com
+*.razorpay.com
 paytm.com
+*.paytm.com
 phonepe.com
+*.phonepe.com
 
 # Indian UPI
 upi.npci.org.in
