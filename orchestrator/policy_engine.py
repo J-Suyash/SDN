@@ -5,7 +5,9 @@ Maps classification and prediction outputs to network actions and
 enforces them through the QoS Enforcer module.
 
 Features:
-- SNI-based traffic classification (with port-based fallback)
+- ML-based traffic classification (primary)
+- SNI-based traffic classification (fallback)
+- Port-based heuristics (last resort)
 - Priority queue assignment (P0-P3)
 - Proactive rerouting for P3 (Banking) on predicted congestion
 - Reactive rerouting for P0 (Bulk) on actual congestion
@@ -23,6 +25,14 @@ from orchestrator.qos_enforcer import (
     PathChoice,
     flow_match_from_dict,
 )
+
+# Import ML classifier (with graceful fallback)
+try:
+    from orchestrator.ml_classifier import MLTrafficClassifier, get_classifier
+
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
 
 logger = logging.getLogger("policy_engine")
 
@@ -88,16 +98,31 @@ class PolicyEngine:
     CONGESTION_THRESHOLD = 0.80  # 80% utilization = congested
     PREDICTION_THRESHOLD = 0.70  # 70% utilization = predict congestion soon
 
-    def __init__(self, dry_run: bool = False):
+    def __init__(self, dry_run: bool = False, use_ml: bool = True):
         """
         Initialize the Policy Engine.
 
         Args:
             dry_run: If True, log OVS commands without executing them.
+            use_ml: If True, use ML classifier when available.
         """
         self.sni_classifier = SNIClassifier()
         self.qos_enforcer = QoSEnforcer(dry_run=dry_run)
         self.dry_run = dry_run
+        self.use_ml = use_ml
+
+        # Initialize ML classifier if available
+        self.ml_classifier = None
+        if use_ml and ML_AVAILABLE:
+            try:
+                self.ml_classifier = get_classifier()
+                if self.ml_classifier.is_model_loaded():
+                    logger.info("ML classifier loaded successfully")
+                else:
+                    logger.warning("ML classifier available but model not loaded")
+                    self.ml_classifier = None
+            except Exception as e:
+                logger.warning(f"Failed to initialize ML classifier: {e}")
 
         # Track active decisions by flow_id
         self.active_decisions: Dict[str, PolicyDecision] = {}
@@ -111,6 +136,7 @@ class PolicyEngine:
             "decisions_made": 0,
             "qos_rules_applied": 0,
             "reroutes_executed": 0,
+            "classification_by_ml": 0,
             "classification_by_sni": 0,
             "classification_by_port": 0,
         }
@@ -119,15 +145,34 @@ class PolicyEngine:
         """
         Classify a flow to a priority class.
 
-        Uses SNI-based classification first, falls back to port-based heuristics.
+        Classification hierarchy:
+        1. ML model (if available and confident)
+        2. SNI-based classification
+        3. Port-based heuristics (fallback)
 
         Args:
-            flow: Flow dictionary with optional 'sni' field
+            flow: Flow dictionary with traffic features
 
         Returns:
             Priority label: "P0", "P1", "P2", or "P3"
         """
-        # Try SNI-based classification first
+        # Try ML classification first
+        if self.ml_classifier is not None:
+            result = self.ml_classifier.classify(flow)
+            if result.method == "ml":
+                self.stats["classification_by_ml"] += 1
+                logger.debug(
+                    f"ML classified flow as {result.priority} (conf={result.confidence:.2f})"
+                )
+                return result.priority
+            elif result.method == "sni":
+                self.stats["classification_by_sni"] += 1
+                return result.priority
+            else:
+                self.stats["classification_by_port"] += 1
+                return result.priority
+
+        # Fallback: Try SNI-based classification
         sni = flow.get("sni", "")
         if sni and sni.lower() not in ("unknown", "none", ""):
             priority = self.sni_classifier.classify(sni)
@@ -427,10 +472,17 @@ class PolicyEngine:
         enforcer_stats = self.qos_enforcer.get_stats()
         classifier_stats = self.sni_classifier.get_stats()
 
+        # Include ML classifier stats if available
+        ml_stats = {}
+        if self.ml_classifier is not None:
+            ml_stats = self.ml_classifier.get_stats()
+
         return {
             "policy_engine": self.stats,
             "qos_enforcer": enforcer_stats,
             "sni_classifier": classifier_stats,
+            "ml_classifier": ml_stats,
+            "ml_enabled": self.ml_classifier is not None,
         }
 
     def cleanup(self) -> None:
@@ -451,7 +503,7 @@ if __name__ == "__main__":
 
     engine = PolicyEngine(dry_run=True)
 
-    # Test flows with various characteristics
+    # Test flows with ML features for proper classification
     test_flows = [
         {
             "flow_id": "banking-1",
@@ -461,6 +513,19 @@ if __name__ == "__main__":
             "dst_port": 443,
             "protocol": 6,
             "sni": "netbanking.hdfcbank.com",
+            # ML features (banking-like: small packets, bursty)
+            "packet_count": 50,
+            "byte_count": 15000,
+            "duration_sec": 2.0,
+            "bytes_per_packet": 300,
+            "packets_per_sec": 25,
+            "bytes_per_sec": 7500,
+            "pkt_len_min": 64,
+            "pkt_len_max": 500,
+            "pkt_len_mean": 300,
+            "pkt_len_std": 100,
+            "iat_mean": 0.04,
+            "iat_std": 0.02,
         },
         {
             "flow_id": "voice-1",
@@ -470,6 +535,19 @@ if __name__ == "__main__":
             "dst_port": 5060,
             "protocol": 17,
             "sni": "meet.google.com",
+            # ML features (voice-like: consistent small packets)
+            "packet_count": 500,
+            "byte_count": 100000,
+            "duration_sec": 30.0,
+            "bytes_per_packet": 200,
+            "packets_per_sec": 16.7,
+            "bytes_per_sec": 3333,
+            "pkt_len_min": 160,
+            "pkt_len_max": 240,
+            "pkt_len_mean": 200,
+            "pkt_len_std": 20,
+            "iat_mean": 0.02,
+            "iat_std": 0.005,
         },
         {
             "flow_id": "bulk-1",
@@ -479,6 +557,19 @@ if __name__ == "__main__":
             "dst_port": 5000,
             "protocol": 6,
             "sni": "files.dropbox.com",
+            # ML features (bulk: large packets, sustained)
+            "packet_count": 2000,
+            "byte_count": 3000000,
+            "duration_sec": 30.0,
+            "bytes_per_packet": 1500,
+            "packets_per_sec": 66.7,
+            "bytes_per_sec": 100000,
+            "pkt_len_min": 1200,
+            "pkt_len_max": 1500,
+            "pkt_len_mean": 1450,
+            "pkt_len_std": 100,
+            "iat_mean": 0.0001,
+            "iat_std": 0.00005,
         },
         {
             "flow_id": "web-1",
@@ -488,6 +579,19 @@ if __name__ == "__main__":
             "dst_port": 80,
             "protocol": 6,
             "sni": "docs.google.com",
+            # ML features (web: mixed packets)
+            "packet_count": 100,
+            "byte_count": 80000,
+            "duration_sec": 5.0,
+            "bytes_per_packet": 800,
+            "packets_per_sec": 20,
+            "bytes_per_sec": 16000,
+            "pkt_len_min": 64,
+            "pkt_len_max": 1500,
+            "pkt_len_mean": 800,
+            "pkt_len_std": 400,
+            "iat_mean": 0.05,
+            "iat_std": 0.1,
         },
     ]
 

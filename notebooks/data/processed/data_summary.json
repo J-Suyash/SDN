@@ -1,0 +1,35 @@
+{
+  "total_flows": 500,
+  "class_distribution": {
+    "P1": 199,
+    "P3": 104,
+    "P2": 101,
+    "P0": 96
+  },
+  "feature_means": {
+    "packet_count": 736.736,
+    "byte_count": 752438.756,
+    "duration_sec": 60.98516033375294,
+    "bytes_per_packet": 672.724,
+    "packets_per_sec": 24.200528559503045,
+    "bytes_per_sec": 22135.15156825979,
+    "pkt_len_mean": 641.2057131818061,
+    "pkt_len_std": 192.36171395454184,
+    "iat_mean": 0.2681402491541941,
+    "iat_std": 0.13407012457709705
+  },
+  "feature_stds": {
+    "packet_count": 1135.5259683307586,
+    "byte_count": 1480219.8697767085,
+    "duration_sec": 66.42246770900567,
+    "bytes_per_packet": 360.5057011270282,
+    "packets_per_sec": 60.52223573723091,
+    "bytes_per_sec": 54300.88871369079,
+    "pkt_len_mean": 336.85511474340007,
+    "pkt_len_std": 101.05653442302001,
+    "iat_mean": 0.3561239376117334,
+    "iat_std": 0.1780619688058667
+  },
+  "capture_files": 1,
+  "processing_date": "2026-01-30T01:08:53.816535"
+}
