@@ -1,60 +1,55 @@
 # ML-Driven Adaptive Traffic Management in SDN
 
-A production-grade SDN traffic management system that uses machine learning to:
-- **Classify network flows** by application/priority (Banking, Voice, Web, Bulk)
-- **Predict congestion** before it happens
-- **Enforce QoS policies** dynamically via Faucet SDN controller
+A Software-Defined Networking project that uses ML-based traffic classification and policy enforcement to manage network QoS. Built on Mininet, Open vSwitch, and Faucet.
+
+The system classifies flows into priority tiers (P0-P3) using a RandomForest model trained on flow statistics (packet sizes, inter-arrival times, byte rates). When the ML model isn't confident, it falls back to TLS SNI domain matching, then port-based heuristics. A policy engine maps classifications to OVS QoS queues and can reroute traffic across a multi-path topology when congestion is detected or predicted.
 
 ## Quick Start
 
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd SDN
+# Install dependencies (needs mininet and openvswitch)
+uv sync
 
-# Start all services
-docker-compose -f docker/docker-compose.yml up -d
+# Run the dry-run demo (no network required)
+uv run python scripts/full_system_demo.py
 
-# Run MVP demo
-./scripts/run_mvp.sh
+# Run tests
+uv run pytest tests/
 
-# Run full demo (after training models)
-./scripts/run_demo.sh
+# Start Docker services (Faucet, Prometheus, Grafana)
+docker compose -f docker/docker-compose.yml up -d
+
+# Run full demo (requires sudo for mininet)
+sudo ./scripts/run_demo.sh
 ```
 
 ## Project Structure
 
 ```
 .
-├── docker/                 # Docker configurations
-│   ├── docker-compose.yml  # Main compose file
-│   ├── mininet/           # Mininet + OVS container
-│   ├── faucet/            # Faucet SDN controller
-│   ├── prometheus/        # Metrics collection
-│   └── ml-orchestrator/   # ML inference container
-├── mininet/               # Topology and traffic generation
-│   ├── topo.py            # Network topology
-│   └── traffic_profiles.py # Traffic patterns
-├── faucet/                # Faucet configuration
-│   └── faucet.yaml        # SDN rules
-├── collector/             # Telemetry collection
-│   ├── scrape_ovs.py      # OVS statistics
-│   ├── scrape_prometheus.py # Prometheus metrics
-│   └── build_datasets.py  # Dataset generation
-├── ml/                    # Machine learning
-│   ├── notebooks/         # Colab training notebooks
-│   └── models/            # Trained models (.pkl)
 ├── orchestrator/          # Control plane
+│   ├── types.py           # Shared enums and dataclasses
 │   ├── orchestrator.py    # Main control loop
-│   ├── policy_engine.py   # QoS enforcement
-│   └── stubs/             # MVP hardcoded classifiers
-├── data/                  # Datasets
-│   ├── domain_lists/      # Priority domain mappings
-│   ├── raw/               # Raw captures
-│   └── processed/         # Training CSVs
-├── scripts/               # Automation scripts
-├── STATUS.md              # Project status tracker
-└── BRIEFING.md            # Project requirements
+│   ├── policy_engine.py   # Classification + QoS decisions
+│   ├── ml_classifier.py   # RandomForest ML classifier
+│   ├── sni_classifier.py  # TLS SNI domain-based classifier
+│   ├── qos_enforcer.py    # OVS flow rule management
+│   └── stubs/             # Fallback classifiers (port-based)
+├── collector/             # Telemetry collection
+│   ├── packet_capture.py  # Scapy-based flow capture + SNI extraction
+│   ├── scrape_ovs.py      # OVS statistics scraper
+│   ├── scrape_prometheus.py # Prometheus metrics scraper
+│   └── build_datasets.py  # CSV dataset builder
+├── topologies/            # Mininet topologies
+│   ├── topo.py            # Simple 2-host topology
+│   ├── topo_multipath.py  # 6-switch multi-path topology
+│   └── traffic_profiles.py # iperf traffic generation
+├── docker/                # Docker Compose + Dockerfiles
+├── faucet/                # Faucet SDN controller config
+├── data/domain_lists/     # Domain lists for SNI classification
+├── notebooks/             # ML training scripts
+├── scripts/               # Shell scripts (demo, QoS setup)
+└── tests/                 # Unit tests
 ```
 
 ## Priority Classes
@@ -66,97 +61,31 @@ docker-compose -f docker/docker-compose.yml up -d
 | P1 | Office/Web | Email, docs, browsing | Best effort |
 | P0 | Bulk/Background | Updates, backups, downloads | Throttle under congestion |
 
-## Training Models (Google Colab)
-
-Since this project is designed for CPU-only environments, ML training is done in Google Colab:
-
-1. **Collect data**: Run `./scripts/collect_training_data.sh`
-2. **Upload to Colab**: Upload `data/processed/flows.csv` and `link_timeseries.csv`
-3. **Train models**: Run notebooks in `ml/notebooks/`:
-   - `01_data_exploration.ipynb` - Explore data
-   - `02_train_classifier.ipynb` - Train traffic classifier
-   - `03_train_predictor.ipynb` - Train congestion predictor
-   - `04_model_evaluation.ipynb` - Evaluate models
-4. **Download models**: Place `classifier.pkl` and `predictor.pkl` in `ml/models/`
-5. **Deploy**: Restart the orchestrator container
-
-## Architecture
+## Classification Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Mininet   │────▶│   Faucet    │────▶│ Prometheus  │
-│  (Traffic)  │     │ (Controller)│     │  (Metrics)  │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                                               ▼
-                    ┌─────────────────────────────────────┐
-                    │          ML Orchestrator            │
-                    │  ┌───────────┐  ┌───────────────┐  │
-                    │  │Classifier │  │   Predictor   │  │
-                    │  │  (P0-P3)  │  │ (Congestion)  │  │
-                    │  └───────────┘  └───────────────┘  │
-                    │         ┌───────────────┐          │
-                    │         │ Policy Engine │          │
-                    │         └───────────────┘          │
-                    └─────────────────────────────────────┘
-                                    │
-                                    ▼
-                           QoS/Routing Actions
+ML Model (RandomForest) → SNI Domain Lookup → Port Heuristics
 ```
 
-## Development Phases
+The ML classifier is primary when a trained model is available. It falls back to SNI-based classification (matching TLS ClientHello server names against domain lists), then to port-based heuristics as a last resort.
 
-See [STATUS.md](STATUS.md) for current progress.
+**Note on ML training**: The current model was trained on synthetic data. For meaningful results, train on real PCAP captures using `notebooks/02_train_classifier.py`.
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 0 | Project scaffolding | DONE |
-| 1 | MVP - End-to-end validation | PENDING |
-| 2 | Full topology + traffic | PENDING |
-| 3 | Telemetry pipeline | PENDING |
-| 3.5 | Scapy packet capture | PENDING |
-| 4 | ML training (Colab) | PENDING |
-| 4.5 | ML refinement | PENDING |
-| 5 | Orchestrator + policies | PENDING |
-| 6 | Demo scenarios | PENDING |
+## Network Topology
 
-## Useful Commands
+Multi-path topology with 6 switches and 4 hosts:
+- **Path A**: s1 → s2 → s3 → s4 (default)
+- **Path B**: s1 → s5 → s6 → s4 (alternate)
+- Edge links: 100 Mbps, Core links: 50 Mbps
 
-```bash
-# Start services
-docker-compose -f docker/docker-compose.yml up -d
-
-# View logs
-docker-compose -f docker/docker-compose.yml logs -f ml-orchestrator
-
-# Enter Mininet container
-docker-compose -f docker/docker-compose.yml exec mininet bash
-
-# Stop services
-docker-compose -f docker/docker-compose.yml down
-
-# Rebuild containers
-docker-compose -f docker/docker-compose.yml build --no-cache
-```
-
-## Endpoints
-
-- **Prometheus**: http://localhost:9090
-- **Faucet metrics**: http://localhost:9302/metrics
+P3 (banking) is proactively rerouted to Path B when congestion is *predicted*. P0 (bulk) is reactively rerouted when congestion is *detected*.
 
 ## Requirements
 
-- Docker & Docker Compose
-- Linux host (required for Mininet)
-- 4GB+ RAM
-- Google account (for Colab training)
-
-## References
-
-- [BRIEFING.md](BRIEFING.md) - Full project specification
-- [Faucet Documentation](https://docs.faucet.nz/)
-- [Mininet Walkthrough](http://mininet.org/walkthrough/)
-- [scikit-learn](https://scikit-learn.org/)
+- Linux (required for Mininet and OVS)
+- Python 3.10+
+- Mininet and Open vSwitch
+- Docker (for Faucet, Prometheus, Grafana)
 
 ## License
 
