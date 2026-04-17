@@ -61,14 +61,14 @@ check_prerequisites() {
     
     # Check Mininet
     if ! command -v mn &> /dev/null; then
-        log_error "Mininet not found. Install with: sudo apt install mininet"
+        log_error "Mininet not found. Install from AUR (e.g., yay -S mininet) or your package manager."
         exit 1
     fi
     log_info "Mininet: OK"
-    
+
     # Check OVS
     if ! command -v ovs-vsctl &> /dev/null; then
-        log_error "Open vSwitch not found. Install with: sudo apt install openvswitch-switch"
+        log_error "Open vSwitch not found. Install with your package manager (pacman -S openvswitch / apt install openvswitch-switch)."
         exit 1
     fi
     log_info "Open vSwitch: OK"
@@ -138,10 +138,18 @@ start_mininet_topology() {
     
     cleanup_mininet
     
-    # Ensure OVS is running
-    if ! systemctl is-active --quiet openvswitch-switch; then
-        log_info "Starting Open vSwitch service..."
-        sudo systemctl start openvswitch-switch
+    # Ensure OVS is running — service name varies by distro
+    if systemctl list-unit-files | grep -q ovs-vswitchd; then
+        OVS_SERVICE="ovs-vswitchd"
+    elif systemctl list-unit-files | grep -q openvswitch-switch; then
+        OVS_SERVICE="openvswitch-switch"
+    else
+        OVS_SERVICE=""
+    fi
+
+    if [ -n "$OVS_SERVICE" ] && ! systemctl is-active --quiet "$OVS_SERVICE"; then
+        log_info "Starting Open vSwitch service ($OVS_SERVICE)..."
+        sudo systemctl start "$OVS_SERVICE"
     fi
     
     cd "$PROJECT_DIR"

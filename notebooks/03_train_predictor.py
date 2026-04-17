@@ -19,6 +19,9 @@ import os
 import json
 import numpy as np
 import pandas as pd
+import matplotlib
+
+matplotlib.use("Agg")  # Non-interactive backend for CLI
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
@@ -79,7 +82,9 @@ RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 
 # Congestion threshold
-CONGESTION_THRESHOLD = 0.80  # 80% utilization
+CONGESTION_THRESHOLD = (
+    0.65  # 65% utilization (lowered for synthetic data to get more positive examples)
+)
 
 # Prediction horizon
 PREDICTION_HORIZON = 1  # Predict next interval
@@ -188,7 +193,9 @@ if os.path.exists(DATA_PATH):
 else:
     print(f"Data file not found: {DATA_PATH}")
     print("Generating synthetic data for demonstration...")
-    df = generate_synthetic_link_data(n_days=14, interval_seconds=30)
+    df = generate_synthetic_link_data(
+        n_days=7, interval_seconds=60
+    )  # Faster: 7 days, 60s intervals
     print(f"Generated {len(df)} samples")
 
 print(f"\nData range: {df['timestamp'].min()} to {df['timestamp'].max()}")
@@ -212,17 +219,23 @@ def create_time_series_features(df, lookback_windows=[1, 3, 5, 10]):
     df = df.copy()
 
     # Ensure sorted by time
-    df = df.sort_values("timestamp")
+    df = df.sort_values("timestamp").reset_index(drop=True)
 
     # Lagged features
     for lag in lookback_windows:
         df[f"util_lag_{lag}"] = df["utilization"].shift(lag)
 
-    # Rolling statistics
+    # Rolling statistics (use min_periods to avoid too many NaNs)
     for window in lookback_windows:
-        df[f"util_rolling_mean_{window}"] = df["utilization"].rolling(window).mean()
-        df[f"util_rolling_std_{window}"] = df["utilization"].rolling(window).std()
-        df[f"util_rolling_max_{window}"] = df["utilization"].rolling(window).max()
+        df[f"util_rolling_mean_{window}"] = (
+            df["utilization"].rolling(window, min_periods=1).mean()
+        )
+        df[f"util_rolling_std_{window}"] = (
+            df["utilization"].rolling(window, min_periods=min(2, window)).std()
+        )
+        df[f"util_rolling_max_{window}"] = (
+            df["utilization"].rolling(window, min_periods=1).max()
+        )
 
     # Rate of change
     df["util_diff_1"] = df["utilization"].diff()
@@ -231,25 +244,41 @@ def create_time_series_features(df, lookback_windows=[1, 3, 5, 10]):
     # Acceleration (second derivative)
     df["util_accel"] = df["util_diff_1"].diff()
 
-    # Time features (cyclical encoding)
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour_of_day"] / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour_of_day"] / 24)
-    df["day_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
-    df["day_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
+    # Time features (cyclical encoding) - handle both timestamp and hour_of_day columns
+    if "hour_of_day" in df.columns:
+        hour = df["hour_of_day"]
+    else:
+        hour = pd.to_datetime(df["timestamp"]).dt.hour
+        df["hour_of_day"] = hour
+
+    if "day_of_week" in df.columns:
+        day = df["day_of_week"]
+    else:
+        day = pd.to_datetime(df["timestamp"]).dt.dayofweek
+        df["day_of_week"] = day
+
+    df["hour_sin"] = np.sin(2 * np.pi * hour / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * hour / 24)
+    df["day_sin"] = np.sin(2 * np.pi * day / 7)
+    df["day_cos"] = np.cos(2 * np.pi * day / 7)
 
     # Boolean flags
-    df["is_work_hours"] = ((df["hour_of_day"] >= 9) & (df["hour_of_day"] <= 17)).astype(
-        int
-    )
-    df["is_morning_peak"] = (
-        (df["hour_of_day"] >= 8) & (df["hour_of_day"] <= 10)
-    ).astype(int)
-    df["is_evening_peak"] = (
-        (df["hour_of_day"] >= 16) & (df["hour_of_day"] <= 18)
-    ).astype(int)
+    df["is_work_hours"] = ((hour >= 9) & (hour <= 17)).astype(int)
+    df["is_morning_peak"] = ((hour >= 8) & (hour <= 10)).astype(int)
+    df["is_evening_peak"] = ((hour >= 16) & (hour <= 18)).astype(int)
 
-    # Drop rows with NaN from rolling windows
-    df = df.dropna()
+    # Fill remaining NaN values with appropriate defaults
+    df["util_diff_1"] = df["util_diff_1"].fillna(0)
+    df["util_diff_3"] = df["util_diff_3"].fillna(0)
+    df["util_accel"] = df["util_accel"].fillna(0)
+
+    # For rolling std, fill NaN with 0 (single value has no std)
+    for window in lookback_windows:
+        df[f"util_rolling_std_{window}"] = df[f"util_rolling_std_{window}"].fillna(0)
+
+    # Drop only the rows where lagged features are NaN (first max(lookback) rows)
+    max_lookback = max(lookback_windows)
+    df = df.iloc[max_lookback:].reset_index(drop=True)
 
     return df
 
@@ -327,12 +356,17 @@ plt.show()
 # Class balance
 print("\nClass Distribution (Congestion Events):")
 class_counts = df_features["is_congested_next"].value_counts()
-print(
-    f"  Not congested (0): {class_counts.get(0, 0)} ({class_counts.get(0, 0) / len(df_features):.1%})"
-)
-print(
-    f"  Congested (1):     {class_counts.get(1, 0)} ({class_counts.get(1, 0) / len(df_features):.1%})"
-)
+total_samples = len(df_features)
+if total_samples > 0:
+    print(
+        f"  Not congested (0): {class_counts.get(0, 0)} ({class_counts.get(0, 0) / total_samples:.1%})"
+    )
+    print(
+        f"  Congested (1):     {class_counts.get(1, 0)} ({class_counts.get(1, 0) / total_samples:.1%})"
+    )
+else:
+    print("  ERROR: No samples after feature engineering!")
+    print("  Check the create_time_series_features function.")
 
 # %%
 # Feature correlations with target
