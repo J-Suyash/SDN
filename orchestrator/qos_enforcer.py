@@ -303,9 +303,7 @@ class QoSEnforcer:
 
 
 def flow_match_from_dict(flow: Dict[str, Any]) -> FlowMatch:
-    protocol = flow.get("protocol", 6)
-    if isinstance(protocol, str):
-        protocol = 17 if protocol.lower() == "udp" else 6
+    protocol = Protocol.from_value(flow.get("protocol", 6)).value
 
     return FlowMatch(
         src_ip=flow.get("src_ip", "0.0.0.0"),

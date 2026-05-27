@@ -6,7 +6,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 import json
 
-from orchestrator.types import classify_by_port, DEFAULT_LINK_CAPACITY_BPS
+from orchestrator.types import classify_by_port, DEFAULT_LINK_CAPACITY_BPS, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +127,7 @@ class DatasetBuilder:
         packet_count = max(int(packet_count), 1)
         byte_count = int(byte_count)
 
-        protocol = raw_flow.get("protocol", 6)
-        if isinstance(protocol, str):
-            protocol = 17 if protocol.lower() == "udp" else 6
+        protocol = Protocol.from_value(raw_flow.get("protocol", 6)).value
 
         return FlowRecord(
             flow_id=str(raw_flow.get("flow_id", raw_flow.get("cookie", "unknown"))),
@@ -206,8 +204,11 @@ class DatasetBuilder:
 def label_flow_by_port(dst_port: int, src_port: int = 0) -> str:
     """Label a flow based on port numbers.
 
-    Delegates to the centralized ``classify_by_port`` in ``orchestrator.types``
-    so there is a single source of truth for port→priority mappings.
+    .. deprecated::
+       Use :func:`orchestrator.types.classify_by_port` directly instead.
+       This wrapper will be removed in a future release.
+
+    Delegates to ``classify_by_port`` so there is a single source of truth.
     """
     return classify_by_port(dst_port, src_port)
 

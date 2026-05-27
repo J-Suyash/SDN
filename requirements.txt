@@ -1,8 +1,0 @@
-# ML-Driven Adaptive Traffic Management in SDN
-#
-# This file is kept for tools that don't support pyproject.toml directly.
-# The authoritative dependency list is in pyproject.toml.
-# Use ``uv sync`` or ``pip install -e .`` to install.
-#
-# For pip users:
--e .

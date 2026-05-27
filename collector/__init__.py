@@ -20,6 +20,7 @@ def __getattr__(name: str) -> Any:
         "FlowRecord": ".build_datasets",
         "LinkRecord": ".build_datasets",
         "label_flow_by_port": ".build_datasets",
+        "classify_by_port": ".build_datasets",
         "PacketCapture": ".packet_capture",
     }
     if name in lazy_map:
@@ -37,5 +38,6 @@ __all__ = [
     "FlowRecord",
     "LinkRecord",
     "label_flow_by_port",
+    "classify_by_port",
     "PacketCapture",
 ]

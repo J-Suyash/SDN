@@ -1,44 +1,40 @@
-from typing import Dict, Any
+"""Fallback port-and-heuristic classifier stub.
 
-from orchestrator.types import PriorityClass, classify_by_port
+Used when the ML model is unavailable.  Delegates port→priority lookup to
+the centralised :func:`orchestrator.types.classify_by_port` and applies
+simple heuristic rules for the remaining flows (UDP voice, bulk transfers).
+"""
 
-PORT_PRIORITY_MAP = {
-    443: PriorityClass.P3_BANKING,
-    5003: PriorityClass.P3_BANKING,
-    5060: PriorityClass.P2_VOICE,
-    5061: PriorityClass.P2_VOICE,
-    5002: PriorityClass.P2_VOICE,
-    80: PriorityClass.P1_WEB,
-    8080: PriorityClass.P1_WEB,
-    5001: PriorityClass.P1_WEB,
-    5000: PriorityClass.P0_BULK,
-    21: PriorityClass.P0_BULK,
-    22: PriorityClass.P0_BULK,
-}
+from typing import Any, Dict
+
+from orchestrator.types import PriorityClass, Protocol, classify_by_port
 
 
 def classify_flow(flow_features: Dict[str, Any]) -> str:
+    """Classify a flow by port → heuristic chain.
+
+    1. Centralised port→priority lookup (dst_port, then src_port).
+    2. Heuristic rules for flows that don't match a known port.
+    3. Default to web/office (P1).
+    """
     dst_port = flow_features.get("dst_port", 0)
     src_port = flow_features.get("src_port", 0)
-    protocol = flow_features.get("protocol", "tcp")
-    if isinstance(protocol, int):
-        protocol = "udp" if protocol == 17 else "tcp"
-    else:
-        protocol = protocol.lower()
-    bytes_per_sec = flow_features.get("bytes_per_sec", 0)
-    packet_size_avg = flow_features.get("packet_size_avg", 0)
 
-    # Use centralized port→priority mapping (checks dst_port then src_port)
+    proto = Protocol.from_value(flow_features.get("protocol"))
+    bytes_per_sec = flow_features.get("bytes_per_sec", 0.0) or 0.0
+    packet_size_avg = flow_features.get("packet_size_avg", 0.0) or 0.0
+
+    # Step 1 — centralised port lookup
     port_priority = classify_by_port(dst_port, src_port)
     if port_priority != "P1":
         return port_priority
 
-    # Heuristic fallbacks for traffic that doesn't match known ports
-    if protocol == "udp" and 0 < bytes_per_sec < 100000:
+    # Step 2 — heuristic fallback
+    if proto == Protocol.UDP and 0 < bytes_per_sec < 100_000:
         return PriorityClass.P2_VOICE.label
-    if packet_size_avg > 0 and packet_size_avg < 200:
+    if 0 < packet_size_avg < 200:
         return PriorityClass.P2_VOICE.label
-    if bytes_per_sec > 5000000:
+    if bytes_per_sec > 5_000_000:
         return PriorityClass.P0_BULK.label
 
     return PriorityClass.P1_WEB.label

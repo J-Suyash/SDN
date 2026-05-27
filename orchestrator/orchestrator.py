@@ -15,10 +15,11 @@ from orchestrator.types import (
     DATA_DIR,
     CAPTURE_INTERFACES,
     ORCHESTRATOR_METRICS_PORT,
+    classify_by_port,
 )
 from collector.scrape_prometheus import PrometheusScraper
 from collector.scrape_ovs import OVSScraper
-from collector.build_datasets import DatasetBuilder, label_flow_by_port
+from collector.build_datasets import DatasetBuilder
 from prometheus_client import start_http_server, Gauge as PromGauge, CollectorRegistry
 
 logging.basicConfig(
@@ -167,7 +168,7 @@ class Orchestrator:
                 for f in scapy_flows:
                     flow_id = f"scapy_{f['src_ip']}_{f['dst_ip']}_{f['src_port']}_{f['dst_port']}"
                     f["flow_id"] = flow_id
-                    label = label_flow_by_port(f["dst_port"], f["src_port"])
+                    label = classify_by_port(f["dst_port"], f["src_port"])
                     record = self.dataset_builder.build_flow_record(f, label=label)
                     self.dataset_builder.add_flow(record)
 

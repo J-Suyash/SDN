@@ -75,3 +75,8 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+
+# Large generated artifacts (not committed)
+data/raw/captures/*.pcapng
+docs/papers/
+ml/models/*.png
