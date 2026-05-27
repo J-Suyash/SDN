@@ -75,8 +75,8 @@ class MLTrafficClassifier:
 
         project_root = Path(__file__).parent.parent
         search_paths.extend([
-            project_root / "notebooks" / "ml" / "models" / "traffic_classifier.pkl",
             project_root / "ml" / "models" / "traffic_classifier.pkl",
+            project_root / "notebooks" / "ml" / "models" / "traffic_classifier.pkl",
         ])
 
         model_file = None

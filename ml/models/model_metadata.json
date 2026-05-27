@@ -1,0 +1,41 @@
+{
+  "model_type": "RandomForestClassifier",
+  "best_params": {
+    "max_depth": 10,
+    "min_samples_leaf": 1,
+    "min_samples_split": 2,
+    "n_estimators": 200
+  },
+  "cv_score": 0.9868480049892001,
+  "test_metrics": {
+    "accuracy": 0.98,
+    "f1_macro": 0.9822261072261073,
+    "f1_weighted": 0.9801981351981353,
+    "precision_macro": 0.9782608695652174,
+    "recall_macro": 0.9875
+  },
+  "feature_importance": {
+    "iat_std": 0.004633222700552855,
+    "iat_mean": 0.006088220217504895,
+    "packets_per_sec": 0.006203985915011961,
+    "bytes_per_sec": 0.015929714964867198,
+    "bytes_per_packet": 0.0770764264333706,
+    "duration_sec": 0.07781086205332985,
+    "byte_count": 0.10361376730163965,
+    "pkt_len_min": 0.12042691481060531,
+    "packet_count": 0.14121891488903862,
+    "pkt_len_mean": 0.14369434539131565,
+    "pkt_len_max": 0.14479341939419219,
+    "pkt_len_std": 0.15851020592857124
+  },
+  "class_names": [
+    "P0",
+    "P1",
+    "P2",
+    "P3"
+  ],
+  "training_samples": 400,
+  "test_samples": 100,
+  "training_date": "2026-01-30T01:10:43.236990",
+  "random_state": 42
+}
