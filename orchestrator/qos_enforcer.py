@@ -2,9 +2,12 @@ import subprocess
 import logging
 import hashlib
 import time
+import shlex
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
+
+from orchestrator.types import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +28,17 @@ class FlowMatch:
     dst_ip: str
     src_port: int
     dst_port: int
-    protocol: int  # 6=TCP, 17=UDP
+    protocol: int  # 6 = TCP, 17 = UDP
+
+    @property
+    def protocol_enum(self) -> Protocol:
+        """Return the Protocol enum for this match."""
+        return Protocol.from_value(self.protocol)
 
     @property
     def protocol_name(self) -> str:
-        return "tcp" if self.protocol == 6 else "udp"
+        """Lowercase protocol name for OVS matches."""
+        return self.protocol_enum.name_lower
 
     @property
     def flow_id(self) -> str:
@@ -37,6 +46,7 @@ class FlowMatch:
         return hashlib.md5(key.encode()).hexdigest()[:12]
 
     def to_ovs_match(self) -> str:
+        """Return the match portion of an OVS flow-mod string (no outer quotes)."""
         parts = [
             self.protocol_name,
             f"nw_src={self.src_ip}",
@@ -85,27 +95,43 @@ class QoSEnforcer:
             "errors": 0,
         }
 
-    def _run_ovs_cmd(self, cmd: str, check: bool = True) -> Tuple[bool, str]:
+    # ── subprocess helpers (list-based, no shell!) ─────────────────────────
+
+    @staticmethod
+    def _build_ovs_args(*segments: str) -> List[str]:
+        """Build an ``ovs-ofctl`` argument list.
+
+        Each positional argument is a segment of the overall flow
+        specification.  They are joined with commas (standard OVS flow
+        syntax) and passed as a **single** argv element to avoid shell
+        injection.
+        """
+        return ["ovs-ofctl", *segments[:-1], ",".join(segments[-1:])]
+
+    def _run_ovsctl(self, *args: str, check: bool = True) -> Tuple[bool, str]:
+        """Run *args* as ``ovs-ofctl …`` with a list-based subprocess
+        (no ``shell=True``)."""
+        cmd = ["ovs-ofctl", *args]
         if self.dry_run:
-            logger.info(f"[DRY-RUN] {cmd}")
+            logger.info(f"[DRY-RUN] {' '.join(shlex.quote(a) for a in cmd)}")
             return True, ""
 
         try:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=10
+                cmd, capture_output=True, text=True, timeout=10,
             )
             if result.returncode != 0:
                 if check:
-                    logger.error(f"OVS command failed: {cmd}\nstderr: {result.stderr}")
+                    logger.error(f"OVS command failed: {' '.join(cmd)}\nstderr: {result.stderr}")
                     self.stats["errors"] += 1
                 return False, result.stderr
             return True, result.stdout
         except subprocess.TimeoutExpired:
-            logger.error(f"OVS command timed out: {cmd}")
+            logger.error(f"OVS command timed out: {' '.join(cmd)}")
             self.stats["errors"] += 1
             return False, "timeout"
         except Exception as e:
-            logger.error(f"OVS command error: {cmd}, {e}")
+            logger.error(f"OVS command error: {' '.join(cmd)}, {e}")
             self.stats["errors"] += 1
             return False, str(e)
 
@@ -116,6 +142,8 @@ class QoSEnforcer:
 
     def _get_rule_key(self, switch: str, match: FlowMatch) -> str:
         return f"{switch}:{match.flow_id}"
+
+    # ── rule management ───────────────────────────────────────────────────
 
     def install_qos_rule(
         self, switch: str, match: FlowMatch, queue_id: int,
@@ -136,15 +164,16 @@ class QoSEnforcer:
         else:
             actions = f"set_queue:{queue_id},normal"
 
-        cmd = (
-            f"ovs-ofctl add-flow {switch} -O {self.OF_VERSION} "
-            f'"priority={self.PRIORITY_QOS},'
+        flow_spec = (
+            f"priority={self.PRIORITY_QOS},"
             f"cookie={cookie},"
             f"{match.to_ovs_match()},"
-            f'actions={actions}"'
+            f"actions={actions}"
         )
 
-        success, _ = self._run_ovs_cmd(cmd)
+        success, _ = self._run_ovsctl(
+            "add-flow", switch, "-O", self.OF_VERSION, flow_spec,
+        )
 
         if success:
             self.installed_rules[rule_key] = InstalledRule(
@@ -167,17 +196,17 @@ class QoSEnforcer:
     def delete_rule(self, switch: str, match: FlowMatch, bidirectional: bool = True) -> bool:
         rule_key = self._get_rule_key(switch, match)
 
-        cookie_match = ""
+        cookie_opt = ""
         if rule_key in self.installed_rules:
             cookie = self.installed_rules[rule_key].cookie
-            cookie_match = f"cookie={cookie}/-1,"
+            cookie_opt = f"cookie={cookie}/-1,"
 
-        cmd = (
-            f"ovs-ofctl del-flows {switch} -O {self.OF_VERSION} "
-            f'"{cookie_match}{match.to_ovs_match()}"'
+        flow_spec = f"{cookie_opt}{match.to_ovs_match()}"
+
+        success, _ = self._run_ovsctl(
+            "del-flows", switch, "-O", self.OF_VERSION, flow_spec,
+            check=False,
         )
-
-        success, _ = self._run_ovs_cmd(cmd, check=False)
 
         if success:
             self.installed_rules.pop(rule_key, None)
@@ -199,15 +228,16 @@ class QoSEnforcer:
 
         cookie = self._generate_cookie()
 
-        cmd = (
-            f"ovs-ofctl add-flow {switch} -O {self.OF_VERSION} "
-            f'"priority={self.PRIORITY_REROUTE},'
+        flow_spec = (
+            f"priority={self.PRIORITY_REROUTE},"
             f"cookie={cookie},"
             f"{match.to_ovs_match()},"
-            f'actions=set_queue:{queue_id},output:{path.egress_port}"'
+            f"actions=set_queue:{queue_id},output:{path.egress_port}"
         )
 
-        success, _ = self._run_ovs_cmd(cmd)
+        success, _ = self._run_ovsctl(
+            "add-flow", switch, "-O", self.OF_VERSION, flow_spec,
+        )
 
         if success:
             self.installed_rules[rule_key] = InstalledRule(

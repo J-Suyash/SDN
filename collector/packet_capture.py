@@ -15,6 +15,8 @@ from scapy.all import sniff, IP, TCP, UDP, load_layer, AsyncSniffer
 from scapy.layers.tls.all import TLS, TLSClientHello
 from scapy.packet import Packet
 
+from orchestrator.types import Protocol, CAPTURE_IDLE_TIMEOUT
+
 # Ensure TLS layer is loaded
 load_layer("tls")
 
@@ -52,6 +54,10 @@ class FlowStats:
     sni: Optional[str] = None
 
     @property
+    def protocol_enum(self) -> Protocol:
+        return Protocol.from_value(self.protocol)
+
+    @property
     def duration(self) -> float:
         return self.last_seen - self.start_time
 
@@ -60,18 +66,14 @@ class FlowStats:
         """Canonical key for bidirectional flow."""
         if self.src_ip < self.dst_ip:
             return (
-                self.src_ip,
-                self.dst_ip,
-                self.src_port,
-                self.dst_port,
+                self.src_ip, self.dst_ip,
+                self.src_port, self.dst_port,
                 self.protocol,
             )
         else:
             return (
-                self.dst_ip,
-                self.src_ip,
-                self.dst_port,
-                self.src_port,
+                self.dst_ip, self.src_ip,
+                self.dst_port, self.src_port,
                 self.protocol,
             )
 
@@ -81,16 +83,8 @@ class FlowStats:
         self.byte_count += packet_len
         self.packet_sizes.append(packet_len)
 
-        # Only calc IAT if it's not the very first packet
-
-        # (Or first packet of the *session* for this object instance)
-        # We initialize last_packet_time = timestamp on creation, so first update
-        # might yield IAT=0 if created and updated same time, or delta if created earlier?
-        # Actually in _process_packet we create then update.
-        # So IAT will be 0 on first packet. We should ignore that.
-
         iat = timestamp - self.last_packet_time
-        if iat > 0.000001:  # Ignore self-update or identical timestamps
+        if iat > 0.000001:
             self.iat_list.append(iat)
 
         self.last_packet_time = timestamp
@@ -129,7 +123,7 @@ class PacketCapture:
     Uses AsyncSniffer for cleaner background execution.
     """
 
-    def __init__(self, interface: str = "eth0", idle_timeout: int = 30):
+    def __init__(self, interface: str = "eth0", idle_timeout: int = CAPTURE_IDLE_TIMEOUT):
         self.interface = interface
         self.idle_timeout = idle_timeout
         self.sniffer: Optional[AsyncSniffer] = None
@@ -151,11 +145,10 @@ class PacketCapture:
             iface=self.interface,
             prn=self._process_packet,
             store=False,
-            filter="ip",  # Capture IP traffic only
+            filter="ip",
         )
         self.sniffer.start()
 
-        # Start pruning loop
         self._schedule_prune()
 
     def stop(self):
@@ -170,15 +163,12 @@ class PacketCapture:
             self.prune_timer = None
 
     def _schedule_prune(self):
-        """Schedule the next prune cycle."""
         self.prune_timer = threading.Timer(1.0, self._prune_flows_loop)
         self.prune_timer.daemon = True
         self.prune_timer.start()
 
     def _prune_flows_loop(self):
-        """Timer callback for pruning."""
         self._prune_flows()
-        # Reschedule if still running (checked via sniffer existence)
         if self.sniffer and self.sniffer.running:
             self._schedule_prune()
 
@@ -206,13 +196,11 @@ class PacketCapture:
         dst_port = 0
         sni = None
 
-        # Extract Ports and SNI
         if pkt.haslayer(TCP):
             tcp_layer = pkt[TCP]
             src_port = int(tcp_layer.sport)
             dst_port = int(tcp_layer.dport)
 
-            # Try extraction of TLS SNI
             if pkt.haslayer(TLSClientHello):
                 try:
                     client_hello = pkt[TLSClientHello]
@@ -233,7 +221,7 @@ class PacketCapture:
             src_port = int(udp_layer.sport)
             dst_port = int(udp_layer.dport)
 
-        # Construct Canonical Key
+        # Canonical key (sorted IPs so bidirectional flows aggregate)
         if src_ip < dst_ip:
             key = (src_ip, dst_ip, src_port, dst_port, proto)
             c_src, c_dst = src_ip, dst_ip
@@ -246,13 +234,10 @@ class PacketCapture:
         with self.lock:
             if key not in self.flows:
                 self.flows[key] = FlowStats(
-                    src_ip=c_src,
-                    dst_ip=c_dst,
-                    src_port=c_sport,
-                    dst_port=c_dport,
+                    src_ip=c_src, dst_ip=c_dst,
+                    src_port=c_sport, dst_port=c_dport,
                     protocol=proto,
-                    start_time=timestamp,
-                    last_seen=timestamp,
+                    start_time=timestamp, last_seen=timestamp,
                     last_packet_time=timestamp,
                 )
 
@@ -262,10 +247,8 @@ class PacketCapture:
         """Remove inactive flows."""
         now = time.time()
         with self.lock:
-            # Create list of keys to remove
             keys_to_remove = [
-                k
-                for k, v in self.flows.items()
+                k for k, v in self.flows.items()
                 if (now - v.last_seen) > self.idle_timeout
             ]
             for k in keys_to_remove:

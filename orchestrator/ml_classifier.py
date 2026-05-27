@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import numpy as np
 
-from orchestrator.types import ClassificationResult
+from orchestrator.types import ClassificationResult, Protocol, classify_by_port
 
 _joblib = None
 
@@ -26,13 +26,6 @@ class MLTrafficClassifier:
         "iat_mean",
         "iat_std",
     ]
-
-    PORT_PRIORITY_MAP = {
-        443: "P3", 5003: "P3", 8443: "P3",
-        5060: "P2", 5061: "P2", 5002: "P2", 3478: "P2", 3479: "P2",
-        20: "P0", 21: "P0", 22: "P0", 5000: "P0",
-        80: "P1", 8080: "P1", 5001: "P1",
-    }
 
     def __init__(
         self,
@@ -75,8 +68,8 @@ class MLTrafficClassifier:
 
         project_root = Path(__file__).parent.parent
         search_paths.extend([
-            project_root / "ml" / "models" / "traffic_classifier.pkl",
             project_root / "notebooks" / "ml" / "models" / "traffic_classifier.pkl",
+            project_root / "ml" / "models" / "traffic_classifier.pkl",
         ])
 
         model_file = None
@@ -100,7 +93,11 @@ class MLTrafficClassifier:
             feature_path = model_file.parent / "feature_names.json"
             if feature_path.exists():
                 with open(feature_path) as f:
-                    self.feature_names = json.load(f)
+                    loaded_features = json.load(f)
+                if loaded_features:
+                    self.feature_names = loaded_features
+                else:
+                    logger.warning("feature_names.json is empty — using defaults")
 
             metadata_path = model_file.parent / "model_metadata.json"
             if metadata_path.exists():
@@ -179,16 +176,12 @@ class MLTrafficClassifier:
     def _classify_port(self, flow: Dict[str, Any]) -> ClassificationResult:
         dst_port = flow.get("dst_port", 0)
         src_port = flow.get("src_port", 0)
-
-        if dst_port in self.PORT_PRIORITY_MAP:
-            return ClassificationResult(
-                priority=self.PORT_PRIORITY_MAP[dst_port], confidence=0.7, method="port",
-            )
-        if src_port in self.PORT_PRIORITY_MAP:
-            return ClassificationResult(
-                priority=self.PORT_PRIORITY_MAP[src_port], confidence=0.6, method="port",
-            )
-        return ClassificationResult(priority="P1", confidence=0.3, method="default")
+        priority = classify_by_port(dst_port, src_port)
+        confidence = 0.7 if priority != "P1" else 0.3
+        method = "port" if priority != "P1" else "default"
+        return ClassificationResult(
+            priority=priority, confidence=confidence, method=method,
+        )
 
     def classify(self, flow: Dict[str, Any]) -> ClassificationResult:
         self.stats["total_classifications"] += 1

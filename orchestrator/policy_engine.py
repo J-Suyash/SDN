@@ -3,7 +3,12 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from orchestrator.types import PRIORITY_QUEUES
+from orchestrator.types import (
+    PRIORITY_QUEUES,
+    CONGESTION_THRESHOLD,
+    PREDICTION_THRESHOLD,
+    classify_by_port,
+)
 from orchestrator.sni_classifier import SNIClassifier
 from orchestrator.qos_enforcer import QoSEnforcer, FlowMatch, PathChoice
 
@@ -41,9 +46,6 @@ class PolicyDecision:
 
 
 class PolicyEngine:
-    CONGESTION_THRESHOLD = 0.80
-    PREDICTION_THRESHOLD = 0.70
-
     def __init__(self, dry_run: bool = False, use_ml: bool = True):
         self.sni_classifier = SNIClassifier()
         self.qos_enforcer = QoSEnforcer(dry_run=dry_run)
@@ -84,7 +86,7 @@ class PolicyEngine:
                 self.stats["classification_by_port"] += 1
             return result.priority
 
-        # Without ML model: SNI -> port fallback
+        # Without ML model: SNI -> port fallback (via centralized classify_by_port)
         sni = flow.get("sni", "")
         if sni and sni.lower() not in ("unknown", "none", ""):
             priority = self.sni_classifier.classify(sni)
@@ -94,19 +96,9 @@ class PolicyEngine:
 
         dst_port = flow.get("dst_port", 0)
         src_port = flow.get("src_port", 0)
-        priority = self._classify_by_port(dst_port, src_port)
+        priority = classify_by_port(dst_port, src_port)
         self.stats["classification_by_port"] += 1
         return priority
-
-    def _classify_by_port(self, dst_port: int, src_port: int) -> str:
-        ports = {dst_port, src_port}
-        if any(p in [443, 5003, 8443] for p in ports):
-            return "P3"
-        if any(p in [5060, 5061, 5002, 3478, 3479] for p in ports):
-            return "P2"
-        if any(p in [20, 21, 22, 5000, 8080] for p in ports):
-            return "P0"
-        return "P1"
 
     def apply(
         self, flows: List[Dict], link_predictions: Dict[str, Dict],
@@ -136,8 +128,8 @@ class PolicyEngine:
 
         for link_id, pred in link_predictions.items():
             utilization = pred.get("current_utilization", 0.0)
-            is_congested = pred.get("is_congested", False) or utilization >= self.CONGESTION_THRESHOLD
-            is_predicted = pred.get("predicted_congestion", False) or utilization >= self.PREDICTION_THRESHOLD
+            is_congested = pred.get("is_congested", False) or utilization >= CONGESTION_THRESHOLD
+            is_predicted = pred.get("predicted_congestion", False) or utilization >= PREDICTION_THRESHOLD
 
             if is_congested:
                 any_congested = True

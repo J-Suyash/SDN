@@ -1,6 +1,6 @@
 from typing import Dict, Any
 
-from orchestrator.types import PriorityClass
+from orchestrator.types import PriorityClass, classify_by_port
 
 PORT_PRIORITY_MAP = {
     443: PriorityClass.P3_BANKING,
@@ -28,11 +28,12 @@ def classify_flow(flow_features: Dict[str, Any]) -> str:
     bytes_per_sec = flow_features.get("bytes_per_sec", 0)
     packet_size_avg = flow_features.get("packet_size_avg", 0)
 
-    if dst_port in PORT_PRIORITY_MAP:
-        return PORT_PRIORITY_MAP[dst_port].label
-    if src_port in PORT_PRIORITY_MAP:
-        return PORT_PRIORITY_MAP[src_port].label
+    # Use centralized port→priority mapping (checks dst_port then src_port)
+    port_priority = classify_by_port(dst_port, src_port)
+    if port_priority != "P1":
+        return port_priority
 
+    # Heuristic fallbacks for traffic that doesn't match known ports
     if protocol == "udp" and 0 < bytes_per_sec < 100000:
         return PriorityClass.P2_VOICE.label
     if packet_size_avg > 0 and packet_size_avg < 200:
